@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap" />
+    <style>
+      :root {
+        --ink: #171310;
+        --muted: #625951;
+        --orange: #ff5b00;
+        --orange-text: #b43d00;
+        --coral: #f75946;
+        --violet: #9c5aa7;
+        --surface: #f4f1ef;
+        --border: #e8dfd8;
+        --error: #a62b20;
+        --focus: #5b286b;
+        --gradient: linear-gradient(180deg, #f75946 0%, #ee5358 33%, #e1556a 50%, #c85981 67%, #9c5aa7 100%);
+        --glass: linear-gradient(125deg, #ffffffbf, #ffffff70);
+        --display: 'Space Grotesk', 'Helvetica Neue', Arial, sans-serif;
+        --body: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        width: 340px;
+        padding: 16px;
+        font: 14px/1.45 var(--body);
+        color: var(--ink);
+        background:
+          radial-gradient(ellipse at 100% 0%, #f759463d, transparent 55%),
+          radial-gradient(ellipse at 0% 100%, #9c5aa733, transparent 60%),
+          #fff;
+      }
+
+      /* cabecera */
+      header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+      .marca { display: flex; align-items: center; gap: 2px; }
+      .marca img { height: 44px; margin: -8px -6px -8px -14px; }
+      .producto {
+        font: 700 11px var(--display);
+        letter-spacing: .02em;
+        padding: 5px 10px;
+        border-radius: 999px;
+        border: 1px solid #ffffffd9;
+        background: var(--glass);
+        box-shadow: 0 4px 14px #7b300f12, inset 0 1px 0 #fff;
+      }
+      .estado {
+        display: flex; align-items: center; gap: 6px;
+        font: 500 11px var(--body); letter-spacing: .15em; text-transform: uppercase; color: var(--muted);
+      }
+      .esfera { width: 10px; height: 10px; border-radius: 50%; background: var(--gradient); }
+      .grabando .estado { color: var(--orange-text); }
+      .grabando .esfera { animation: latido 1.4s ease-in-out infinite; }
+      @keyframes latido { 50% { transform: scale(.7); opacity: .55; } }
+
+      /* tarjetas de vidrio */
+      .glass {
+        background: var(--glass);
+        border: 1px solid #ffffffd9;
+        border-radius: 24px;
+        backdrop-filter: blur(24px) saturate(125%);
+        box-shadow: 0 16px 45px #7b300f14, inset 0 1px 0 #ffffff9c;
+        padding: 18px;
+      }
+      .glass + .glass { margin-top: 10px; }
+      .eyebrow { font: 500 11px var(--body); letter-spacing: .15em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+      .pestana { font: 700 15px/1.3 var(--display); letter-spacing: -.02em; margin: 0 0 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .pestana.aviso { font: 13px var(--body); color: var(--muted); white-space: normal; }
+
+      /* interruptores */
+      .opcion {
+        display: flex; align-items: center; justify-content: space-between; gap: 10px;
+        padding: 10px 0; border-top: 1px solid #1713100f; cursor: pointer;
+      }
+      .opcion span { font-size: 13px; }
+      .opcion:has(input:disabled) { cursor: default; opacity: .55; }
+      .opcion input {
+        appearance: none; margin: 0; flex-shrink: 0;
+        width: 36px; height: 20px; border-radius: 999px;
+        background: #d9d0c9; position: relative; cursor: inherit; transition: background .2s;
+      }
+      .opcion input::after {
+        content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+        border-radius: 50%; background: #fff; box-shadow: 0 1px 3px #0003; transition: transform .2s;
+      }
+      .opcion input:checked { background: var(--ink); }
+      .opcion input:checked::after { transform: translateX(16px); }
+      .sub { font-size: 11px; color: var(--muted); margin: -6px 0 6px; }
+
+      /* botones */
+      button { font-family: var(--display); font-weight: 700; cursor: pointer; border: 1px solid transparent; }
+      button:disabled { opacity: .45; cursor: not-allowed; }
+      button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+      .principal {
+        width: 100%; min-height: 48px; margin-top: 14px; padding: 12px 20px;
+        font-size: 14px; border-radius: 999px;
+        display: flex; align-items: center; justify-content: center; gap: 10px;
+        transition: transform .18s, box-shadow .18s;
+      }
+      .principal:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 22px #2110081f; }
+      .principal:active:not(:disabled) { transform: none; }
+      .principal.naranja { background: var(--orange); color: var(--ink); box-shadow: inset 0 1px 0 #ffffff45; }
+      .principal.tinta { background: var(--ink); color: #fff; }
+      .principal .punto-rec { width: 10px; height: 10px; border-radius: 50%; background: var(--ink); }
+      .principal .cuadro { width: 10px; height: 10px; border-radius: 2px; background: #fff; }
+      .chico {
+        padding: 5px 11px; font-size: 11px; border-radius: 999px;
+        background: #fff; color: var(--ink); border-color: var(--border);
+      }
+      .chico:hover:not(:disabled) { border-color: var(--ink); }
+
+      /* grabando */
+      .reloj { display: flex; align-items: center; gap: 14px; }
+      .reloj .esfera-grande {
+        width: 44px; height: 44px; border-radius: 50%; background: var(--gradient); flex-shrink: 0;
+        box-shadow: 0 8px 24px #e1556a55; animation: latido 1.4s ease-in-out infinite;
+      }
+      #tiempo { font: 700 34px/1 var(--display); letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+      #grabando-de { font-size: 12px; color: var(--muted); margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+
+      .transcripcion {
+        display: flex; align-items: center; gap: 8px;
+        font-size: 12px; color: var(--muted); margin: 14px 0 0; padding: 8px 12px;
+        border-radius: 12px; background: #ffffff8c; border: 1px solid #1713100f;
+      }
+      .transcripcion::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #c9bdb4; flex-shrink: 0; }
+      .transcripcion.ok::before { background: #1e8e3e; }
+      .transcripcion.alerta { color: var(--orange-text); }
+      .transcripcion.alerta::before { background: var(--orange); }
+
+      /* listas */
+      .fila { display: flex; align-items: center; gap: 8px; font-size: 12px; margin: 8px 0 0; }
+      .fila .txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .barra { height: 4px; background: #1713101a; border-radius: 999px; overflow: hidden; margin: 6px 0 2px; }
+      .barra > div { height: 100%; background: var(--gradient); background: linear-gradient(90deg, #f75946, #c85981, #9c5aa7); width: 0; transition: width .3s; }
+      a { color: var(--orange-text); font-weight: 600; text-decoration: none; cursor: pointer; }
+      a:hover { text-decoration: underline; }
+
+      .mensaje { font-size: 12px; color: var(--muted); margin: 12px 4px 0; }
+      .mensaje:empty { display: none; }
+      .error { color: var(--error); }
+      .pie { font-size: 11px; color: var(--muted); margin: 14px 4px 0; text-align: center; }
+      .oculto { display: none !important; }
+      @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="marca">
+        <img src="assets/plogy.svg" alt="Plogy" />
+        <span class="producto">Screen Recorder</span>
+      </div>
+      <div class="estado"><span class="esfera"></span><span id="estado-txt">Listo</span></div>
+    </header>
+
+    <section id="vista-lista" class="glass">
+      <p class="eyebrow">Pestaña a grabar</p>
+      <p id="pestana" class="pestana"></p>
+      <label class="opcion"><span>Incluir mi micrófono</span><input type="checkbox" id="mic" checked /></label>
+      <label class="opcion"><span>Transcribir la llamada</span><input type="checkbox" id="transcribir" checked /></label>
+      <label class="opcion"><span>Comprimir en ZIP al terminar</span><input type="checkbox" id="comprimir" checked /></label>
+      <label class="opcion"><span>Subir a Google Drive</span><input type="checkbox" id="drive" /></label>
+      <p id="drive-nota" class="sub oculto"></p>
+      <button id="iniciar" class="principal naranja"><span class="punto-rec"></span>Empezar a grabar</button>
+    </section>
+
+    <section id="vista-grabando" class="glass oculto">
+      <div class="reloj">
+        <span class="esfera-grande"></span>
+        <div>
+          <div id="tiempo">00:00:00</div>
+          <div id="grabando-de"></div>
+        </div>
+      </div>
+      <p id="transcripcion-estado" class="transcripcion oculto"></p>
+      <button id="detener" class="principal tinta"><span class="cuadro"></span>Detener y guardar</button>
+    </section>
+
+    <p id="mensaje" class="mensaje"></p>
+
+    <section id="subidas" class="glass oculto">
+      <p class="eyebrow">En proceso</p>
+      <div id="subidas-lista"></div>
+    </section>
+
+    <section id="zips" class="glass oculto">
+      <p class="eyebrow">Últimos ZIP</p>
+      <div id="zips-lista"></div>
+    </section>
+
+    <section id="pendientes" class="glass oculto">
+      <p class="eyebrow">Grabaciones sin guardar</p>
+      <div id="pendientes-lista"></div>
+    </section>
+
+    <section id="historial" class="glass oculto">
+      <p class="eyebrow">Últimas en Drive</p>
+      <div id="historial-lista"></div>
+    </section>
+
+    <p class="pie">Se guarda en Descargas › Grabaciones Meet · Avisa que estás grabando</p>
+    <p class="pie" style="margin-top:4px">Comprimir tarda unos minutos: no cierres el navegador mientras el ícono muestre %</p>
+
+    <script src="almacen.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

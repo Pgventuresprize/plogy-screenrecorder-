@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "Plogy Screen Recorder",
+  "version": "1.3.0",
+  "description": "Graba tus llamadas de Google Meet (video, audio de todos y tu micrófono) y las sube a Google Drive.",
+  "icons": {
+    "16": "assets/icono-16.png",
+    "32": "assets/icono-32.png",
+    "48": "assets/icono-48.png",
+    "128": "assets/icono-128.png"
+  },
+  "minimum_chrome_version": "116",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAp7LXBp5NWeLfUEnnyrddAn91e4mY0SvofedyQBdQemLr9ZzsuB1L1YHdNtoLHrWU7MeMN4lwOxNI8w7sVKkefn9JJQREnDCkwgk2fWANdAAUlT6yfbrI9mlnu5ldrhtArUplL5MRtd0paxuxPSHvXgPJcA+JKUxRXVVQe2YXFprxRo3fqdhBNSpyC0vHT8gxqApEEiKFVguIy0pe8XXlMp5tuUdQgpIy/U/js06FbzP4/kACOHt8NnSR6+WFPIbprv6hJ8BJApr4Z+SkAMghr29UwvkVPxyQyI3i9WeNbPQaTKV8l4Hhn+GiIOMFjW++VcjadBw9r8Sx8lzSomla1wIDAQAB",
+  "permissions": ["tabCapture", "offscreen", "downloads", "storage", "identity", "scripting"],
+  "host_permissions": ["https://www.googleapis.com/*", "https://meet.google.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": ["transcriptor.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "oauth2": {
+    "client_id": "PEGA_AQUI_TU_CLIENT_ID.apps.googleusercontent.com",
+    "scopes": ["https://www.googleapis.com/auth/drive.file"]
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Plogy Screen Recorder",
+    "default_icon": {
+      "16": "assets/icono-16.png",
+      "32": "assets/icono-32.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
