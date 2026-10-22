@@ -68,10 +68,8 @@
   }
 
   // Se aplasta a 0 px en su sitio en vez de ocultarla: el contenido sigue renderizado (recortado),
-  // así innerText trae los saltos de línea, y Meet, que reserva abajo el alto que mide en la caja,
-  // le devuelve ese espacio al video. Se aplasta la caja completa (texto + selector de idioma +
-  // ajustes), no solo el texto. Moverla fuera de pantalla no sirve: conserva su alto y Meet
-  // sigue reservando la franja.
+  // así innerText trae los saltos de línea, y Meet, que reserva abajo el alto que mide, le
+  // devuelve ese espacio al video. Moverla fuera de pantalla no sirve: conserva su alto.
   const ESTILO_OCULTO = [
     ['height', '0px'],
     ['min-height', '0px'],
@@ -129,6 +127,7 @@
       viewport: [innerWidth, innerHeight],
       regionEncontrada: !!region,
       cajaOculta: describir(cajaOculta),
+      aplastadas: aplastadas.map(describir),
       regiones: [...document.querySelectorAll('[role="region"]')].map(describir),
       botones: [...document.querySelectorAll('button[aria-label]')]
         .map((b) => b.getAttribute('aria-label'))
@@ -137,16 +136,32 @@
     };
   }
 
+  // Se aplasta toda la cadena, desde la caja exterior hasta el padre de la región: Meet le
+  // reserva al video el alto de una caja interior (a4cQT, 216 px en el diagnóstico real), no
+  // el de la exterior. La región misma no se toca: ahí se leen los subtítulos.
+  // Se llama cada segundo: si Meet vuelve a crear alguna caja, se aplasta también.
+  let aplastadas = [];
+
   function ocultarRegion(region) {
-    if (cajaOculta?.contains(region)) return;
     const caja = cajaDeSubtitulos(region);
-    mostrarRegion();
-    for (const [p, v] of ESTILO_OCULTO) caja.style.setProperty(p, v, 'important');
+    const cadena = [];
+    for (let el = region.parentElement; el; el = el.parentElement) {
+      cadena.push(el);
+      if (el === caja) break;
+    }
+    for (const el of aplastadas) if (!cadena.includes(el)) restaurar(el);
+    for (const el of cadena) for (const [p, v] of ESTILO_OCULTO) el.style.setProperty(p, v, 'important');
+    aplastadas = cadena;
     cajaOculta = caja;
   }
 
+  function restaurar(el) {
+    for (const [p] of ESTILO_OCULTO) el.style.removeProperty(p);
+  }
+
   function mostrarRegion() {
-    if (cajaOculta) for (const [p] of ESTILO_OCULTO) cajaOculta.style.removeProperty(p);
+    aplastadas.forEach(restaurar);
+    aplastadas = [];
     cajaOculta = null;
   }
 
