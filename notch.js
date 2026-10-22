@@ -9,6 +9,7 @@
 (() => {
   if (globalThis.__plogyNotch) return; // ya inyectado
   globalThis.__plogyNotch = true;
+  console.info('[Plogy] extensión cargada en esta pestaña');
 
   // geometría fija: la máscara del video se calcula con estos mismos números
   const BARRA_ANCHO = 452;

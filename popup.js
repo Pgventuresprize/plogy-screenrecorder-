@@ -71,6 +71,7 @@ function pintarEstado(estado) {
           ? 'No encuentro los subtítulos: actívalos con el botón CC de Meet'
           : 'Activando subtítulos…';
 
+    if (estado.errorNotch) mostrarMensaje(`Sin notch ni transcripción. ${estado.errorNotch}`, true);
     if (estado.sinMic) mostrarMensaje('No se pudo usar el micrófono: se graba solo el audio de la llamada.', true);
   }
 }
@@ -178,13 +179,14 @@ async function iniciar() {
       return;
     }
 
-    const esMeet = !!tab.url?.startsWith('https://meet.google.com/');
-    const transcribir = esMeet && $('transcribir').checked;
+    // si es Meet lo decide el background preguntándole a la pestaña, no la URL
+    const transcribir = $('transcribir').checked;
 
     const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
-    const r = await enviar({ tipo: 'iniciar', streamId, tabId: tab.id, titulo: tab.title, mic, transcribir, esMeet });
+    const r = await enviar({ tipo: 'iniciar', streamId, tabId: tab.id, titulo: tab.title, mic, transcribir });
     if (!r?.ok) throw new Error(r?.error || 'No se pudo iniciar.');
     pintarEstado(await enviar({ tipo: 'estado' }));
+    if (r.errorNotch) mostrarMensaje(`Grabando, pero sin notch ni transcripción. ${r.errorNotch}`, true);
   } catch (e) {
     mostrarMensaje(e.message, true);
   } finally {

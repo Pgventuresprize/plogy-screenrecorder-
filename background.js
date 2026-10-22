@@ -113,15 +113,27 @@ async function terminarSubida({ sesionId: id, nombre, archivo, error }) {
 
 // ── notch y transcripción dentro de Meet (notch.js + transcriptor.js) ──
 
-async function iniciarNotch(tabId, datos) {
-  const msg = { destino: 'notch', tipo: 'iniciar', ...datos };
+// ¿La pestaña es Meet y tiene el notch cargado? Se le pregunta directo en vez de mirar su URL
+// (que el navegador puede no mostrarle a la extensión). Si no contesta, se inyecta: solo
+// funciona en meet.google.com, así que también sirve para saber si es Meet.
+async function conectarPestana(tabId) {
+  const ping = () => chrome.tabs.sendMessage(tabId, { destino: 'notch', tipo: 'ping' }).then((r) => !!r?.ok);
   try {
-    await chrome.tabs.sendMessage(tabId, msg);
+    if (await ping()) return { ok: true };
   } catch {
-    // la pestaña de Meet se abrió antes de instalar/recargar la extensión: se inyecta a mano
-    await chrome.scripting.executeScript({ target: { tabId }, files: ['transcriptor.js', 'notch.js'] });
-    await chrome.tabs.sendMessage(tabId, msg);
+    // sin content script: la pestaña se abrió antes de instalar/recargar la extensión
   }
+  try {
+    await chrome.scripting.executeScript({ target: { tabId }, files: ['transcriptor.js', 'notch.js'] });
+    return { ok: await ping() };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+async function iniciarNotch(tabId, datos) {
+  const r = await chrome.tabs.sendMessage(tabId, { destino: 'notch', tipo: 'iniciar', ...datos });
+  if (!r?.ok) throw new Error(r?.error || 'el notch no respondió');
 }
 
 // guardar: cierra el notch y recoge lo transcrito
@@ -308,6 +320,8 @@ const acciones = {
       await cerrarOffscreenSiSobra();
       return { ok: false, error: r?.error || 'No se pudo iniciar la grabación.' };
     }
+    const conexion = await conectarPestana(msg.tabId);
+    const enMeet = conexion.ok;
     const desde = Date.now();
     await guardarEstado({
       grabando: true,
@@ -319,16 +333,20 @@ const acciones = {
       tabId: msg.tabId,
       titulo: msg.titulo,
       sinMic: msg.mic && !r.micOk,
-      enMeet: !!msg.esMeet,
-      transcribir: !!msg.transcribir,
+      enMeet,
+      conexion: conexion.error || null,
+      transcribir: enMeet && !!msg.transcribir,
     });
     // si el notch o la transcripción fallan, la grabación sigue igual
-    if (msg.esMeet) {
+    let errorNotch = enMeet ? null : `No pude conectarme con la pestaña${conexion.error ? `: ${conexion.error}` : ''}`;
+    if (enMeet) {
       await iniciarNotch(msg.tabId, { sesionId, desde, transcribir: !!msg.transcribir }).catch((e) => {
-        console.warn('No se pudo mostrar el notch', e);
+        console.warn('[Plogy] No se pudo mostrar el notch', e);
+        errorNotch = `El notch falló: ${e.message}`;
       });
     }
-    return { ok: true };
+    if (errorNotch) await guardarEstado({ ...(await leerEstado()), errorNotch });
+    return { ok: true, errorNotch };
   },
 
   async detener() {
@@ -390,7 +408,15 @@ const acciones = {
   async diagnostico() {
     const estado = await leerEstado();
     const tabId = estado.grabando ? estado.tabId : (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
-    const datos = { version: chrome.runtime.getManifest().version, fecha: new Date().toISOString(), estado };
+    const datos = {
+      version: chrome.runtime.getManifest().version,
+      navegador: navigator.userAgent,
+      fecha: new Date().toISOString(),
+      estado,
+      permisos: await chrome.permissions.getAll(),
+      pestana: await chrome.tabs.get(tabId).then((t) => ({ url: t.url ?? '(oculta)', titulo: t.title })).catch((e) => e.message),
+      conexion: await conectarPestana(tabId),
+    };
     try {
       datos.pagina = await chrome.tabs.sendMessage(tabId, { destino: 'notch', tipo: 'diagnostico' });
     } catch (e) {
