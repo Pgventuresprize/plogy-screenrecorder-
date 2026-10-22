@@ -1,28 +1,32 @@
-// Corre dentro de la pestaña de Meet. Mientras se graba, activa los subtítulos de Meet,
-// lee quién dice qué y se lo pasa al background cada pocos segundos.
+// Corre dentro de la pestaña de Meet (lo maneja notch.js). Activa los subtítulos de Meet,
+// los saca de la vista (la franja de abajo es enorme) y va leyendo quién dice qué.
 //
 // Meet cambia sus clases CSS seguido, así que no se usan: se busca la región de subtítulos
 // por su rol/aria-label y cada bloque por el avatar de quien habla ("Nombre\nTexto…").
 
 (() => {
-  if (globalThis.__plogyTranscriptor) return; // ya inyectado
-  globalThis.__plogyTranscriptor = true;
+  if (globalThis.PlogyTranscriptor) return; // ya inyectado
 
   const ENVIO_MS = 5000;
   const BUSQUEDA_MS = 1000;
 
   let activo = false;
+  let pausado = false;
   let sesionId = null;
-  let desde = 0;
-  let entradas = []; // { nombre, texto, t } — t en ms desde que empezó la grabación
+  let reloj = () => 0; // ms de video grabado (descuenta las pausas)
+  let alCambiar = () => {};
+  let alEstado = () => {};
+  let entradas = []; // { nombre, texto, t }
   let porBloque = new WeakMap(); // bloque del DOM → entrada que está escribiendo
   let cambios = false;
   let regionObservada = null;
+  let cajaOculta = null;
   let observador = null;
   let temporizadores = [];
   let pendiente = null;
   let ultimoEstado = null;
   let intentosActivar = 0;
+  let activadosPorNosotros = false;
 
   const avisar = (msg) => chrome.runtime.sendMessage({ destino: 'background', ...msg }).catch(() => {});
 
@@ -50,14 +54,43 @@
     return [...encontrados];
   }
 
+  function botonSubtitulos(prender) {
+    const accion = prender ? '(activar|turn on|ativar|show|mostrar)' : '(desactivar|turn off|desativar|hide|ocultar)';
+    const re = new RegExp(`${accion}.*(subt[ií]tul|caption|legenda)`, 'i');
+    return [...document.querySelectorAll('button')].find((b) => re.test(b.getAttribute('aria-label') || ''));
+  }
+
   function activarSubtitulos() {
-    const botones = [...document.querySelectorAll('button')];
-    const etiqueta = (b) => b.getAttribute('aria-label') || '';
-    const boton =
-      botones.find((b) => /(activar|turn on|ativar|show|mostrar).*(subt[ií]tul|caption|legenda)/i.test(etiqueta(b))) ||
-      botones.find((b) => /subt[ií]tul|caption|legenda/i.test(etiqueta(b)) && b.getAttribute('aria-pressed') === 'false');
+    const boton = botonSubtitulos(true);
     if (boton) boton.click();
     else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', code: 'KeyC', keyCode: 67, bubbles: true }));
+    activadosPorNosotros = true;
+  }
+
+  // Se mueve fuera de pantalla en vez de ocultarla: sigue renderizada, así innerText trae los saltos
+  // de línea. Se sube por los contenedores de un solo hijo para no dejar la caja negra vacía.
+  const ESTILO_OCULTO = [
+    ['position', 'fixed'],
+    ['left', '-10000px'],
+    ['top', '0'],
+    ['width', '900px'],
+    ['pointer-events', 'none'],
+  ];
+
+  function ocultarRegion(region) {
+    let caja = region;
+    while (caja.parentElement && caja.parentElement !== document.body && caja.parentElement.children.length === 1) {
+      caja = caja.parentElement;
+    }
+    if (caja === cajaOculta) return;
+    mostrarRegion();
+    for (const [p, v] of ESTILO_OCULTO) caja.style.setProperty(p, v, 'important');
+    cajaOculta = caja;
+  }
+
+  function mostrarRegion() {
+    if (cajaOculta) for (const [p] of ESTILO_OCULTO) cajaOculta.style.removeProperty(p);
+    cajaOculta = null;
   }
 
   // ── lectura ──
@@ -71,7 +104,8 @@
 
   function leer() {
     pendiente = null;
-    if (!activo || !regionObservada) return;
+    if (!activo || pausado || !regionObservada) return;
+    let hubo = false;
     for (const bloque of bloques(regionObservada)) {
       const [nombre, ...resto] = bloque.innerText.split('\n').map((s) => s.trim()).filter(Boolean);
       const texto = resto.join(' ');
@@ -81,14 +115,18 @@
       if (entrada && entrada.nombre === nombre && !esFraseNueva(entrada.texto, texto)) {
         if (entrada.texto !== texto) {
           entrada.texto = texto;
-          cambios = true;
+          hubo = true;
         }
         continue;
       }
-      const nueva = { nombre, texto, t: Math.max(0, Date.now() - desde) };
+      const nueva = { nombre, texto, t: Math.max(0, reloj()) };
       entradas.push(nueva);
       porBloque.set(bloque, nueva);
+      hubo = true;
+    }
+    if (hubo) {
       cambios = true;
+      alCambiar(entradas);
     }
   }
 
@@ -99,12 +137,14 @@
   function informar(ok) {
     if (ok === ultimoEstado) return;
     ultimoEstado = ok;
+    alEstado(ok);
     avisar({ tipo: 'transcriptor-estado', sesionId, ok });
   }
 
   // la región aparece/desaparece al prender/apagar subtítulos: se vigila y se re-engancha
   function vigilarRegion() {
     const region = buscarRegion();
+    if (region) ocultarRegion(region);
     if (region !== regionObservada) {
       observador?.disconnect();
       regionObservada = region || null;
@@ -129,24 +169,29 @@
     avisar({ tipo: 'transcripcion', sesionId, lineas: entradas });
   }
 
-  // ── ciclo ──
+  // ── API para notch.js ──
 
-  function iniciar(msg) {
+  function iniciar(opciones) {
     detener();
     activo = true;
-    sesionId = msg.sesionId;
-    desde = msg.desde;
+    pausado = false;
+    ({ sesionId, reloj, alCambiar = () => {}, alEstado = () => {} } = opciones);
     entradas = [];
     porBloque = new WeakMap();
     cambios = false;
     ultimoEstado = null;
     intentosActivar = 0;
+    activadosPorNosotros = false;
     vigilarRegion();
     temporizadores = [setInterval(vigilarRegion, BUSQUEDA_MS), setInterval(enviar, ENVIO_MS)];
   }
 
+  // devuelve lo transcrito; deja los subtítulos de Meet como estaban
   function detener() {
-    if (activo) leer();
+    if (activo) {
+      leer();
+      enviar();
+    }
     activo = false;
     temporizadores.forEach(clearInterval);
     temporizadores = [];
@@ -155,16 +200,29 @@
     observador?.disconnect();
     observador = null;
     regionObservada = null;
+    mostrarRegion();
+    if (activadosPorNosotros) {
+      botonSubtitulos(false)?.click();
+      activadosPorNosotros = false;
+    }
     return entradas;
   }
 
-  chrome.runtime.onMessage.addListener((msg, _sender, responder) => {
-    if (msg.destino !== 'transcriptor') return;
-    if (msg.tipo === 'ping') responder({ ok: true });
-    if (msg.tipo === 'iniciar') {
-      iniciar(msg);
-      responder({ ok: true });
-    }
-    if (msg.tipo === 'detener') responder({ ok: true, sesionId, lineas: detener() });
-  });
+  globalThis.PlogyTranscriptor = {
+    iniciar,
+    detener,
+    pausar: () => {
+      leer();
+      pausado = true;
+    },
+    reanudar: () => {
+      pausado = false;
+    },
+    get activo() {
+      return activo;
+    },
+    get lineas() {
+      return entradas;
+    },
+  };
 })();

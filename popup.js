@@ -44,12 +44,19 @@ function pintarEstado(estado) {
   document.body.classList.toggle('grabando', grabando);
   $('vista-lista').classList.toggle('oculto', grabando);
   $('vista-grabando').classList.toggle('oculto', !grabando);
-  $('estado-txt').textContent = grabando ? 'Grabando' : 'Listo';
+  const pausado = grabando && !!estado.pausado;
+  document.body.classList.toggle('pausado', pausado);
+  $('estado-txt').textContent = pausado ? 'En pausa' : grabando ? 'Grabando' : 'Listo';
 
   clearInterval(reloj);
   if (grabando) {
     $('grabando-de').textContent = estado.titulo || '';
-    const tic = () => ($('tiempo').textContent = formatear(Date.now() - estado.desde));
+    $('pausa').textContent = pausado ? 'Reanudar' : 'Pausar';
+    // tiempo de video: sin contar las pausas
+    const tic = () => {
+      const hasta = estado.pausado ? estado.pausadoDesde : Date.now();
+      $('tiempo').textContent = formatear(hasta - estado.desde - (estado.pausadoTotal || 0));
+    };
     tic();
     reloj = setInterval(tic, 1000);
 
@@ -175,7 +182,7 @@ async function iniciar() {
     const transcribir = esMeet && $('transcribir').checked;
 
     const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
-    const r = await enviar({ tipo: 'iniciar', streamId, tabId: tab.id, titulo: tab.title, mic, transcribir });
+    const r = await enviar({ tipo: 'iniciar', streamId, tabId: tab.id, titulo: tab.title, mic, transcribir, esMeet });
     if (!r?.ok) throw new Error(r?.error || 'No se pudo iniciar.');
     pintarEstado(await enviar({ tipo: 'estado' }));
   } catch (e) {
@@ -209,6 +216,10 @@ async function cambiarDrive() {
 (async () => {
   $('iniciar').addEventListener('click', iniciar);
   $('detener').addEventListener('click', detener);
+  $('pausa').addEventListener('click', async () => {
+    const estado = await enviar({ tipo: 'estado' });
+    await enviar({ tipo: estado.pausado ? 'reanudar' : 'pausar' });
+  });
   $('drive').addEventListener('change', cambiarDrive);
 
   // preferencias que se recuerdan entre llamadas (encendidas por defecto)

@@ -104,6 +104,10 @@
       .principal:active:not(:disabled) { transform: none; }
       .principal.naranja { background: var(--orange); color: var(--ink); box-shadow: inset 0 1px 0 #ffffff45; }
       .principal.tinta { background: var(--ink); color: #fff; }
+      .acciones { display: flex; gap: 8px; }
+      .acciones .principal { flex: 1; }
+      .principal.secundario { background: #fff; color: var(--ink); border-color: var(--border); }
+      .pausado .esfera, .pausado .esfera-grande { animation: none; filter: grayscale(1); opacity: .6; }
       .principal .punto-rec { width: 10px; height: 10px; border-radius: 50%; background: var(--ink); }
       .principal .cuadro { width: 10px; height: 10px; border-radius: 2px; background: #fff; }
       .chico {
@@ -176,7 +180,10 @@
         </div>
       </div>
       <p id="transcripcion-estado" class="transcripcion oculto"></p>
-      <button id="detener" class="principal tinta"><span class="cuadro"></span>Detener y guardar</button>
+      <div class="acciones">
+        <button id="pausa" class="principal secundario">Pausar</button>
+        <button id="detener" class="principal tinta"><span class="cuadro"></span>Guardar</button>
+      </div>
     </section>
 
     <p id="mensaje" class="mensaje"></p>

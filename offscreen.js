@@ -9,6 +9,11 @@ let audioCtx = null;
 let sesionId = null;
 let n = 0;
 let cola = Promise.resolve();
+let cancelada = false;
+
+// áreas a tapar en el video (el notch de Meet y su panel), en px del viewport de la página
+let mascaras = { rects: [], vw: 1, vh: 1 };
+const COLOR_FONDO = '#202124'; // fondo de Meet
 
 // videos ya armados, esperando descarga y subida
 const listos = new Map(); // sesionId → { blob, url }
@@ -34,10 +39,53 @@ function nombreArchivo(titulo) {
   return `${fecha}_${slug}.webm`;
 }
 
+// Pasa cada cuadro por un canvas y pinta encima las máscaras: así los controles que se ven
+// en la pestaña no quedan en la grabación.
+function conMascaras(pista) {
+  const procesador = new MediaStreamTrackProcessor({ track: pista });
+  const generador = new MediaStreamTrackGenerator({ kind: 'video' });
+  let lienzo = null;
+  let ctx = null;
+
+  procesador.readable
+    .pipeThrough(
+      new TransformStream({
+        transform(cuadro, salida) {
+          if (!mascaras.rects.length) return salida.enqueue(cuadro);
+          const w = cuadro.displayWidth;
+          const h = cuadro.displayHeight;
+          if (lienzo?.width !== w || lienzo?.height !== h) {
+            lienzo = new OffscreenCanvas(w, h);
+            ctx = lienzo.getContext('2d');
+          }
+          ctx.drawImage(cuadro, 0, 0, w, h);
+
+          // el cuadro puede venir escalado o con bandas: se mapea del viewport de la página al video
+          const { vw, vh, rects } = mascaras;
+          const escala = Math.min(w / vw, h / vh);
+          const dx = (w - vw * escala) / 2;
+          const dy = (h - vh * escala) / 2;
+          ctx.fillStyle = COLOR_FONDO;
+          for (const r of rects) ctx.fillRect(dx + r.x * escala, dy + r.y * escala, r.w * escala, r.h * escala);
+
+          const tapado = new VideoFrame(lienzo, { timestamp: cuadro.timestamp });
+          cuadro.close();
+          salida.enqueue(tapado);
+        },
+      })
+    )
+    .pipeTo(generador.writable)
+    .catch(() => {}); // termina cuando se corta la captura
+
+  return generador;
+}
+
 async function iniciar({ streamId, mic, titulo, sesionId: id }) {
-  if (recorder?.state === 'recording') return { ok: false, error: 'Ya está grabando.' };
+  if (recorder && recorder.state !== 'inactive') return { ok: false, error: 'Ya está grabando.' };
 
   streams = [];
+  cancelada = false;
+  mascaras = { rects: [], vw: 1, vh: 1 };
   const tabStream = await navigator.mediaDevices.getUserMedia({
     audio: { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: streamId } },
     video: {
@@ -76,10 +124,9 @@ async function iniciar({ streamId, mic, titulo, sesionId: id }) {
     }
   }
 
-  const salida = new MediaStream([
-    ...tabStream.getVideoTracks(),
-    ...mezcla.stream.getAudioTracks(),
-  ]);
+  const video = conMascaras(tabStream.getVideoTracks()[0]);
+  streams.push(new MediaStream([video]));
+  const salida = new MediaStream([video, ...mezcla.stream.getAudioTracks()]);
 
   sesionId = id;
   n = 0;
@@ -108,8 +155,15 @@ async function iniciar({ streamId, mic, titulo, sesionId: id }) {
       .catch((err) => console.error('No se pudo guardar un trozo', err));
   };
   recorder.onstop = async () => {
+    const descartar = cancelada;
+    cancelada = false;
     limpiar();
     await cola;
+    if (descartar) {
+      await Almacen.borrarSesion(id);
+      avisar({ tipo: 'grabacion-cancelada', sesionId: id });
+      return;
+    }
     await finalizar(id);
   };
   recorder.onerror = (e) => {
@@ -126,6 +180,20 @@ async function iniciar({ streamId, mic, titulo, sesionId: id }) {
 
 function detener() {
   if (recorder && recorder.state !== 'inactive') recorder.stop();
+}
+
+// MediaRecorder deja fuera del video el tiempo en pausa
+function pausar() {
+  if (recorder?.state === 'recording') recorder.pause();
+}
+
+function reanudar() {
+  if (recorder?.state === 'paused') recorder.resume();
+}
+
+function cancelar() {
+  cancelada = true;
+  detener();
 }
 
 function limpiar() {
@@ -214,6 +282,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, responder) => {
   const acciones = {
     iniciar: () => iniciar(msg),
     detener: () => (detener(), { ok: true }),
+    pausar: () => (pausar(), { ok: true }),
+    reanudar: () => (reanudar(), { ok: true }),
+    cancelar: () => (cancelar(), { ok: true }),
+    mascaras: () => ((mascaras = { rects: msg.rects, vw: msg.vw, vh: msg.vh }), { ok: true }),
     recuperar: () => (finalizar(msg.sesionId, true), { ok: true }),
     subir: () => (subir(msg), { ok: true }),
     empaquetar: () => (empaquetar(msg), { ok: true }),

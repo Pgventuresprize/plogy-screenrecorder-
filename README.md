@@ -21,6 +21,20 @@ Extensión de Chrome y Brave que graba una llamada de Google Meet: video de la p
 
 El archivo queda en `Descargas/Grabaciones Meet/AAAA-MM-DD_HH-MM_codigo-reunion.webm`. Con Drive activado, además se sube a la carpeta **Grabaciones Meet** de tu Drive: el ícono muestra el % y el popup deja el link en "Últimas en Drive".
 
+## Notch de controles en Meet
+
+Mientras grabas, arriba de Meet aparece un notch pequeño con:
+
+- **Tiempo de grabación.** Si está en pausa, se pone gris.
+- **⏸ Pausar / ▶ Reanudar.** Lo que pasa en pausa no queda ni en el video ni en la transcripción.
+- **☰ Transcripción en vivo.** Abre un panel con lo que se va diciendo. Desde ahí se puede **Detener transcripción**: lo ya transcrito se conserva.
+- **■ Guardar.** Detiene la grabación y guarda.
+- **✕ Descartar.** Pide confirmación y borra la grabación sin guardar nada.
+
+**No sale en el video.** Antes de mostrarse, el notch le avisa al grabador su posición exacta, y el grabador tapa esa área en cada cuadro con el gris de fondo de Meet. En la grabación se ve un rectángulo oscuro pequeño arriba al centro. Mientras el panel de transcripción está abierto, también sale tapada esa área, así que conviene abrirlo solo un momento.
+
+La franja grande de subtítulos de Meet se saca de la pantalla mientras se transcribe. Se sigue leyendo, pero ya no tapa la llamada ni sale en el video.
+
 ## Transcripción
 
 Con **Transcribir la llamada** activado (viene así por defecto), la extensión prende los subtítulos de Meet y va anotando quién dice qué. Al terminar deja un `.txt` con el mismo nombre del video:
@@ -34,7 +48,7 @@ Con **Transcribir la llamada** activado (viene así por defecto), la extensión 
 - Los minutos coinciden con el video.
 - Si Drive está activado, el `.txt` también se sube a la misma carpeta.
 - El idioma es el de los subtítulos de Meet: en Meet → ⋮ → *Configuración* → *Subtítulos*, elige **Español**.
-- Los subtítulos se ven en pantalla, así que también quedan en el video.
+- La franja de subtítulos de Meet se esconde: lo transcrito se ve en el panel del notch.
 - Si el popup dice "No encuentro los subtítulos", actívalos a mano con el botón **CC** de Meet.
 
 ## Compresión en ZIP

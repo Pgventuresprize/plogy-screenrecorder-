@@ -39,8 +39,8 @@ async function pintarBadge() {
   const comprimiendo = trabajos.find((t) => t.compresion === 'comprimiendo');
   const subiendo = trabajos.find((t) => t.subida === 'subiendo');
   if (estado.grabando) {
-    await chrome.action.setBadgeText({ text: 'REC' });
-    await chrome.action.setBadgeBackgroundColor({ color: '#d93025' });
+    await chrome.action.setBadgeText({ text: estado.pausado ? 'II' : 'REC' });
+    await chrome.action.setBadgeBackgroundColor({ color: estado.pausado ? '#8a817a' : '#d93025' });
   } else if (comprimiendo) {
     await chrome.action.setBadgeText({ text: `${Math.round((comprimiendo.p || 0) * 100)}%` });
     await chrome.action.setBadgeBackgroundColor({ color: '#9c5aa7' });
@@ -111,29 +111,44 @@ async function terminarSubida({ sesionId: id, nombre, archivo, error }) {
   await cerrarSiTermino(id);
 }
 
-// ── transcripción (subtítulos de Meet, leídos por transcriptor.js) ──
+// ── notch y transcripción dentro de Meet (notch.js + transcriptor.js) ──
 
-async function iniciarTranscriptor(tabId, sesionId, desde) {
-  const msg = { destino: 'transcriptor', tipo: 'iniciar', sesionId, desde };
+async function iniciarNotch(tabId, datos) {
+  const msg = { destino: 'notch', tipo: 'iniciar', ...datos };
   try {
     await chrome.tabs.sendMessage(tabId, msg);
   } catch {
     // la pestaña de Meet se abrió antes de instalar/recargar la extensión: se inyecta a mano
-    await chrome.scripting.executeScript({ target: { tabId }, files: ['transcriptor.js'] });
+    await chrome.scripting.executeScript({ target: { tabId }, files: ['transcriptor.js', 'notch.js'] });
     await chrome.tabs.sendMessage(tabId, msg);
   }
 }
 
-async function detenerTranscriptor(estado) {
-  if (!estado.transcribir || !estado.tabId) return;
+// guardar: cierra el notch y recoge lo transcrito
+async function detenerNotch(estado) {
+  if (!estado.enMeet || !estado.tabId) return;
   try {
-    const r = await chrome.tabs.sendMessage(estado.tabId, { destino: 'transcriptor', tipo: 'detener' });
+    const r = await chrome.tabs.sendMessage(estado.tabId, { destino: 'notch', tipo: 'detener' });
     if (r?.lineas?.length && r.sesionId === estado.sesionId) {
       await Almacen.guardarTranscripcion(estado.sesionId, r.lineas);
     }
   } catch {
     // la pestaña ya se cerró: queda lo último que mandó (máx. 5 s atrás)
   }
+}
+
+// la grabación terminó por otro lado (error, descartada): solo quitar el notch
+async function cerrarNotch(estado) {
+  if (!estado.enMeet || !estado.tabId) return;
+  await chrome.tabs.sendMessage(estado.tabId, { destino: 'notch', tipo: 'fin' }).catch(() => {});
+}
+
+async function avisarPausaAlNotch(estado) {
+  if (!estado.enMeet || !estado.tabId) return;
+  const { pausado, pausadoDesde, pausadoTotal } = estado;
+  await chrome.tabs
+    .sendMessage(estado.tabId, { destino: 'notch', tipo: 'estado', pausado, pausadoDesde, pausadoTotal })
+    .catch(() => {});
 }
 
 function hms(ms) {
@@ -181,7 +196,10 @@ async function guardarTranscripcionLocal(nombre, texto) {
 // solo apaga el "Grabando" si es esta sesión (una recuperada no debe cortar la grabación en curso)
 async function terminarGrabacion(id) {
   const estado = await leerEstado();
-  if (estado.grabando && estado.sesionId === id) await guardarEstado({ grabando: false });
+  if (estado.grabando && estado.sesionId === id) {
+    await cerrarNotch(estado); // p. ej. se cortó la captura sin pasar por "Guardar"
+    await guardarEstado({ grabando: false });
+  }
 }
 
 // ── ciclo de una grabación terminada ──
@@ -292,15 +310,19 @@ const acciones = {
       grabando: true,
       sesionId,
       desde,
+      pausado: false,
+      pausadoDesde: null,
+      pausadoTotal: 0,
       tabId: msg.tabId,
       titulo: msg.titulo,
       sinMic: msg.mic && !r.micOk,
+      enMeet: !!msg.esMeet,
       transcribir: !!msg.transcribir,
     });
-    // si la transcripción falla, la grabación sigue igual
-    if (msg.transcribir) {
-      await iniciarTranscriptor(msg.tabId, sesionId, desde).catch((e) => {
-        console.warn('No se pudo iniciar la transcripción', e);
+    // si el notch o la transcripción fallan, la grabación sigue igual
+    if (msg.esMeet) {
+      await iniciarNotch(msg.tabId, { sesionId, desde, transcribir: !!msg.transcribir }).catch((e) => {
+        console.warn('No se pudo mostrar el notch', e);
       });
     }
     return { ok: true };
@@ -308,14 +330,69 @@ const acciones = {
 
   async detener() {
     // primero se recogen los últimos subtítulos, después se cierra el video
-    await detenerTranscriptor(await leerEstado());
+    await detenerNotch(await leerEstado());
     await aOffscreen({ tipo: 'detener' });
+    return { ok: true };
+  },
+
+  async pausar() {
+    const estado = await leerEstado();
+    if (!estado.grabando || estado.pausado) return { ok: false };
+    await aOffscreen({ tipo: 'pausar' });
+    const nuevo = { ...estado, pausado: true, pausadoDesde: Date.now() };
+    await guardarEstado(nuevo);
+    await avisarPausaAlNotch(nuevo);
+    return { ok: true };
+  },
+
+  async reanudar() {
+    const estado = await leerEstado();
+    if (!estado.grabando || !estado.pausado) return { ok: false };
+    await aOffscreen({ tipo: 'reanudar' });
+    const nuevo = {
+      ...estado,
+      pausado: false,
+      pausadoDesde: null,
+      pausadoTotal: (estado.pausadoTotal || 0) + (Date.now() - estado.pausadoDesde),
+    };
+    await guardarEstado(nuevo);
+    await avisarPausaAlNotch(nuevo);
+    return { ok: true };
+  },
+
+  // detiene sin guardar nada: el offscreen borra los trozos y responde 'grabacion-cancelada'
+  async 'descartar-grabacion'() {
+    const estado = await leerEstado();
+    if (!estado.grabando) return { ok: false };
+    await cerrarNotch(estado);
+    await aOffscreen({ tipo: 'cancelar' });
+    return { ok: true };
+  },
+
+  async 'grabacion-cancelada'({ sesionId }) {
+    await terminarGrabacion(sesionId);
+    await cambiarTrabajo(sesionId, null);
+    await cerrarOffscreenSiSobra();
+    return { ok: true };
+  },
+
+  // desde notch.js: el notch le dice al grabador qué área tapar en el video
+  async mascaras({ rects, vw, vh }) {
+    if (!(await leerEstado()).grabando) return { ok: false };
+    await aOffscreen({ tipo: 'mascaras', rects, vw, vh });
+    return { ok: true };
+  },
+
+  async 'transcripcion-apagada'() {
+    const estado = await leerEstado();
+    if (estado.grabando) await guardarEstado({ ...estado, transcribir: false });
     return { ok: true };
   },
 
   // desde transcriptor.js
   async transcripcion({ sesionId, lineas }) {
-    await Almacen.guardarTranscripcion(sesionId, lineas);
+    // si la grabación ya se descartó, no dejar una transcripción huérfana
+    if (await Almacen.obtenerSesion(sesionId)) await Almacen.guardarTranscripcion(sesionId, lineas);
     return { ok: true };
   },
 
@@ -394,7 +471,7 @@ const acciones = {
   async 'error-grabacion'({ sesionId, error }) {
     console.error('Error en la grabación:', error);
     const estado = await leerEstado();
-    if (estado.sesionId === sesionId) await detenerTranscriptor(estado);
+    if (estado.sesionId === sesionId) await detenerNotch(estado);
     await terminarGrabacion(sesionId);
     if (sesionId) await cambiarTrabajo(sesionId, null);
     await cerrarOffscreenSiSobra();
