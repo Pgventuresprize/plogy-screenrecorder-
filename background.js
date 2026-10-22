@@ -129,9 +129,9 @@ async function detenerNotch(estado) {
   if (!estado.enMeet || !estado.tabId) return;
   try {
     const r = await chrome.tabs.sendMessage(estado.tabId, { destino: 'notch', tipo: 'detener' });
-    if (r?.lineas?.length && r.sesionId === estado.sesionId) {
-      await Almacen.guardarTranscripcion(estado.sesionId, r.lineas);
-    }
+    if (r?.sesionId !== estado.sesionId) return;
+    if (r.lineas?.length) await Almacen.guardarTranscripcion(estado.sesionId, r.lineas);
+    if (r.notas?.trim()) await Almacen.actualizarSesion(estado.sesionId, { notas: r.notas });
   } catch {
     // la pestaña ya se cerró: queda lo último que mandó (máx. 5 s atrás)
   }
@@ -158,9 +158,10 @@ function hms(ms) {
 }
 
 async function textoTranscripcion(id) {
-  const lineas = await Almacen.leerTranscripcion(id);
-  if (!lineas?.length) return null;
+  const lineas = (await Almacen.leerTranscripcion(id)) || [];
   const sesion = await Almacen.obtenerSesion(id);
+  const notas = sesion?.notas?.trim();
+  if (!lineas.length && !notas) return null;
 
   // une los turnos seguidos de la misma persona en un solo párrafo
   const turnos = [];
@@ -177,6 +178,8 @@ async function textoTranscripcion(id) {
   });
   return [
     `Transcripción · ${titulo}\n${fecha} · Plogy Screen Recorder (subtítulos de Meet)`,
+    ...(notas ? [`── Mis notas ──\n${notas}`] : []),
+    ...(lineas.length ? ['── Transcripción ──'] : []),
     ...turnos.map((t) => `[${hms(t.t)}] ${t.nombre}: ${t.texto}`),
   ].join('\n\n') + '\n';
 }
@@ -380,6 +383,12 @@ const acciones = {
   async mascaras({ rects, vw, vh }) {
     if (!(await leerEstado()).grabando) return { ok: false };
     await aOffscreen({ tipo: 'mascaras', rects, vw, vh });
+    return { ok: true };
+  },
+
+  // notas que se escriben en el notch (se guardan mientras tanto por si el navegador se cae)
+  async notas({ sesionId, notas }) {
+    if (sesionId && (await Almacen.obtenerSesion(sesionId))) await Almacen.actualizarSesion(sesionId, { notas });
     return { ok: true };
   },
 

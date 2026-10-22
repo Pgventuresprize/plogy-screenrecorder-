@@ -68,7 +68,8 @@
   }
 
   // Se mueve fuera de pantalla en vez de ocultarla: sigue renderizada, así innerText trae los saltos
-  // de línea. Se sube por los contenedores de un solo hijo para no dejar la caja negra vacía.
+  // de línea. Se esconde la caja completa de subtítulos (texto + selector de idioma + ajustes),
+  // no solo el texto, o Meet deja una franja vacía enorme abajo.
   const ESTILO_OCULTO = [
     ['position', 'fixed'],
     ['left', '-10000px'],
@@ -77,12 +78,21 @@
     ['pointer-events', 'none'],
   ];
 
-  function ocultarRegion(region) {
+  // sube desde la región hasta antes de tocar los videos o la barra de controles de Meet
+  function cajaDeSubtitulos(region) {
+    const botonCC = botonSubtitulos(false) || botonSubtitulos(true);
     let caja = region;
-    while (caja.parentElement && caja.parentElement !== document.body && caja.parentElement.children.length === 1) {
-      caja = caja.parentElement;
+    for (let el = region.parentElement; el && el !== document.body; el = el.parentElement) {
+      if (el.querySelector('video') || (botonCC && el.contains(botonCC))) break;
+      if (el.getBoundingClientRect().height > innerHeight * 0.6) break;
+      caja = el;
     }
-    if (caja === cajaOculta) return;
+    return caja;
+  }
+
+  function ocultarRegion(region) {
+    if (cajaOculta?.contains(region)) return;
+    const caja = cajaDeSubtitulos(region);
     mostrarRegion();
     for (const [p, v] of ESTILO_OCULTO) caja.style.setProperty(p, v, 'important');
     cajaOculta = caja;
