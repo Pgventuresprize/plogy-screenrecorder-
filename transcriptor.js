@@ -67,14 +67,20 @@
     activadosPorNosotros = true;
   }
 
-  // Se mueve fuera de pantalla en vez de ocultarla: sigue renderizada, así innerText trae los saltos
-  // de línea. Se esconde la caja completa de subtítulos (texto + selector de idioma + ajustes),
-  // no solo el texto, o Meet deja una franja vacía enorme abajo.
+  // Se aplasta a 0 px en su sitio en vez de ocultarla: el contenido sigue renderizado (recortado),
+  // así innerText trae los saltos de línea, y Meet, que reserva abajo el alto que mide en la caja,
+  // le devuelve ese espacio al video. Se aplasta la caja completa (texto + selector de idioma +
+  // ajustes), no solo el texto. Moverla fuera de pantalla no sirve: conserva su alto y Meet
+  // sigue reservando la franja.
   const ESTILO_OCULTO = [
-    ['position', 'fixed'],
-    ['left', '-10000px'],
-    ['top', '0'],
-    ['width', '900px'],
+    ['height', '0px'],
+    ['min-height', '0px'],
+    ['max-height', '0px'],
+    ['padding', '0px'],
+    ['margin', '0px'],
+    ['border', '0px'],
+    ['overflow', 'hidden'],
+    ['opacity', '0'],
     ['pointer-events', 'none'],
   ];
 
@@ -88,6 +94,47 @@
       caja = el;
     }
     return caja;
+  }
+
+  // ── diagnóstico: estructura alrededor de los subtítulos, sin el texto de lo que se dice ──
+
+  function describir(el) {
+    if (!el || el.nodeType !== 1) return null;
+    const r = el.getBoundingClientRect();
+    const cs = getComputedStyle(el);
+    return {
+      tag: el.tagName.toLowerCase(),
+      id: el.id || undefined,
+      clase: (typeof el.className === 'string' ? el.className : '').split(/\s+/).slice(0, 4).join(' ') || undefined,
+      jsname: el.getAttribute('jsname') || undefined,
+      rol: el.getAttribute('role') || undefined,
+      aria: el.getAttribute('aria-label') || undefined,
+      estilo: el.getAttribute('style')?.slice(0, 200) || undefined,
+      rect: [r.x, r.y, r.width, r.height].map(Math.round),
+      pos: cs.position,
+      display: cs.display,
+      hijos: el.children.length,
+      video: !!el.querySelector('video') || undefined,
+      textoLargo: (el.innerText || '').length,
+    };
+  }
+
+  function diagnostico() {
+    const region = buscarRegion();
+    const ancestros = [];
+    for (let el = region; el && el !== document.documentElement; el = el.parentElement) {
+      ancestros.push({ ...describir(el), hermanos: [...(el.parentElement?.children || [])].map(describir) });
+    }
+    return {
+      viewport: [innerWidth, innerHeight],
+      regionEncontrada: !!region,
+      cajaOculta: describir(cajaOculta),
+      regiones: [...document.querySelectorAll('[role="region"]')].map(describir),
+      botones: [...document.querySelectorAll('button[aria-label]')]
+        .map((b) => b.getAttribute('aria-label'))
+        .filter((a) => /subt|caption|legenda/i.test(a)),
+      ancestros,
+    };
   }
 
   function ocultarRegion(region) {
@@ -221,6 +268,7 @@
   globalThis.PlogyTranscriptor = {
     iniciar,
     detener,
+    diagnostico,
     pausar: () => {
       leer();
       pausado = true;

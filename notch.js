@@ -102,8 +102,21 @@
     return r.map(({ x, y, w, h: alto }) => ({ x: x - holgura, y: y - holgura, w: w + 2 * holgura, h: alto + 2 * holgura }));
   }
 
+  // con tope de espera: si el grabador no contesta, el notch no puede quedarse invisible para siempre
   async function mandarMascaras(rects) {
-    await enviar({ tipo: 'mascaras', rects, vw: innerWidth, vh: innerHeight });
+    const ok = await Promise.race([
+      enviar({ tipo: 'mascaras', rects, vw: innerWidth, vh: innerHeight }),
+      esperar(1500).then(() => 'tarde'),
+    ]);
+    if (ok === 'tarde') console.warn('[Plogy] el grabador tardó en confirmar la máscara');
+  }
+
+  // En pantalla completa el navegador solo pinta el elemento que está en pantalla completa:
+  // el notch tiene que vivir adentro de ese elemento o no se ve.
+  const contenedor = () => document.fullscreenElement || document.body || document.documentElement;
+
+  function reubicarHost() {
+    if (host && host.parentNode !== contenedor()) contenedor().append(host);
   }
 
   // primero la máscara, después lo visible: así nunca queda un cuadro sin tapar
@@ -260,6 +273,8 @@
 
   function crear() {
     host = document.createElement('plogy-notch');
+    // fuera del flujo: si el contenedor es un grid/flex de Meet, no le mueve el diseño
+    host.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;z-index:2147483647;';
     raiz = host.attachShadow({ mode: 'closed' });
     const estilo = document.createElement('style');
     estilo.textContent = CSS;
@@ -292,7 +307,7 @@
     );
 
     raiz.append(estilo, el.widget);
-    document.documentElement.append(host);
+    contenedor().append(host);
   }
 
   function pintarBarra() {
@@ -443,14 +458,36 @@
     await esperar(120);
     host.style.visibility = '';
     clearInterval(tic);
-    tic = setInterval(() => s && (el.tiempo.textContent = hms(tiempo())), 500);
+    tic = setInterval(() => {
+      if (!s) return;
+      el.tiempo.textContent = hms(tiempo());
+      reubicarHost(); // por si Meet movió el DOM o cambió la pantalla completa
+    }, 500);
     addEventListener('resize', alRedimensionar);
+    document.addEventListener('fullscreenchange', reubicarHost);
+    console.info('[Plogy] notch visible', diagnosticoNotch());
+  }
+
+  function diagnosticoNotch() {
+    if (!host) return { creado: false };
+    const r = el.widget.getBoundingClientRect();
+    const centro = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    return {
+      creado: true,
+      conectado: host.isConnected,
+      padre: host.parentNode?.nodeName,
+      pantallaCompleta: document.fullscreenElement?.nodeName || null,
+      rect: [r.x, r.y, r.width, r.height].map(Math.round),
+      visibilidad: getComputedStyle(host).visibility,
+      encima: centro === host ? 'notch' : centro ? `${centro.nodeName}.${String(centro.className).slice(0, 40)}` : null,
+    };
   }
 
   function quitar() {
     clearInterval(tic);
     clearTimeout(guardadoNotas);
     removeEventListener('resize', alRedimensionar);
+    document.removeEventListener('fullscreenchange', reubicarHost);
     host?.remove();
     host = raiz = null;
     el = {};
@@ -520,6 +557,15 @@
       case 'estado':
         cambiarEstado(msg);
         responder({ ok: true });
+        break;
+      case 'diagnostico':
+        responder({
+          ok: true,
+          url: location.pathname,
+          grabando: !!s,
+          notch: diagnosticoNotch(),
+          subtitulos: globalThis.PlogyTranscriptor?.diagnostico?.() ?? 'transcriptor no cargado',
+        });
         break;
       case 'detener': // guardar: devuelve lo transcrito y las notas
       case 'fin': // la grabación terminó por otro lado (error, descartada)

@@ -386,6 +386,25 @@ const acciones = {
     return { ok: true };
   },
 
+  // descarga un .json con la estructura de Meet alrededor del notch y los subtítulos
+  async diagnostico() {
+    const estado = await leerEstado();
+    const tabId = estado.grabando ? estado.tabId : (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
+    const datos = { version: chrome.runtime.getManifest().version, fecha: new Date().toISOString(), estado };
+    try {
+      datos.pagina = await chrome.tabs.sendMessage(tabId, { destino: 'notch', tipo: 'diagnostico' });
+    } catch (e) {
+      datos.pagina = `sin respuesta de la pestaña: ${e.message}`;
+    }
+    await chrome.downloads.download({
+      url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(datos, null, 1))}`,
+      filename: `${CARPETA}/diagnostico-meet.json`,
+      conflictAction: 'overwrite',
+      saveAs: false,
+    });
+    return { ok: true };
+  },
+
   // notas que se escriben en el notch (se guardan mientras tanto por si el navegador se cae)
   async notas({ sesionId, notas }) {
     if (sesionId && (await Almacen.obtenerSesion(sesionId))) await Almacen.actualizarSesion(sesionId, { notas });

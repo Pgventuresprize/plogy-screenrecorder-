@@ -216,6 +216,10 @@ async function cambiarDrive() {
 (async () => {
   $('iniciar').addEventListener('click', iniciar);
   $('detener').addEventListener('click', detener);
+  $('diagnostico').addEventListener('click', async () => {
+    await enviar({ tipo: 'diagnostico' });
+    mostrarMensaje('Listo: diagnostico-meet.json quedó en Descargas › Grabaciones Meet.');
+  });
   $('pausa').addEventListener('click', async () => {
     const estado = await enviar({ tipo: 'estado' });
     await enviar({ tipo: estado.pausado ? 'reanudar' : 'pausar' });
