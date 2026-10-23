@@ -129,6 +129,7 @@
       cajaOculta: describir(cajaOculta),
       aplastadas: aplastadas.map(describir),
       videos: [...document.querySelectorAll('video')].map((v) => describir(v.parentElement)),
+      escalado: escalado ? { ...describir(escalado), transform: escalado.style.transform } : null,
       regiones: [...document.querySelectorAll('[role="region"]')].map(describir),
       botones: [...document.querySelectorAll('button[aria-label]')]
         .map((b) => b.getAttribute('aria-label'))
@@ -164,6 +165,81 @@
     aplastadas.forEach(restaurar);
     aplastadas = [];
     cajaOculta = null;
+    soltarVideo();
+  }
+
+  // ── video a pantalla completa con subtítulos activos ──
+  //
+  // Con CC activado Meet reserva abajo la franja de subtítulos aunque la caja mida 0: decide por
+  // el estado, no por lo que mide (diagnóstico real: video de 480 px, 224 px vacíos debajo).
+  // No se pelea con su layout: se escala el contenedor de los videos con transform, que Meet
+  // no mide (ResizeObserver y clientWidth ignoran transform), hasta llenar el espacio libre.
+
+  let escalado = null; // contenedor al que se le aplicó la escala
+
+  function soltarVideo() {
+    if (escalado) {
+      escalado.style.removeProperty('transform');
+      escalado.style.removeProperty('transform-origin');
+    }
+    escalado = null;
+  }
+
+  function ancestroComun(nodos) {
+    let comun = nodos[0].parentElement;
+    while (comun && !nodos.every((n) => comun.contains(n))) comun = comun.parentElement;
+    return comun;
+  }
+
+  function limiteInferior() {
+    const controles = [...document.querySelectorAll('[role="region"]')].find((r) =>
+      /controles|controls|controlos/i.test(r.getAttribute('aria-label') || '')
+    );
+    const top = controles?.getBoundingClientRect().top;
+    return (top > innerHeight / 2 ? top : innerHeight - 80) - 16;
+  }
+
+  function ajustarVideo() {
+    // los recuadros grandes (se ignoran miniaturas como la vista propia flotante)
+    const recuadros = [...document.querySelectorAll('video')]
+      .map((v) => v.parentElement)
+      .filter((p) => p && p.getBoundingClientRect().width > 0 && p.getBoundingClientRect().height > 0);
+    if (!recuadros.length) return soltarVideo();
+
+    // se mide sin la escala propia (en la misma tarea, así no hay parpadeo)
+    if (escalado) escalado.style.removeProperty('transform');
+    const area = (r) => r.width * r.height;
+    const maxArea = Math.max(...recuadros.map((p) => area(p.getBoundingClientRect())));
+    const grandes = recuadros.filter((p) => area(p.getBoundingClientRect()) >= maxArea * 0.4);
+    const objetivo = ancestroComun(grandes);
+    if (!objetivo || objetivo === document.body) return soltarVideo();
+    if (escalado && escalado !== objetivo) soltarVideo();
+    if (!escalado && getComputedStyle(objetivo).transform !== 'none') return; // no pisar transform de Meet
+
+    const rs = grandes.map((p) => p.getBoundingClientRect());
+    const u = {
+      x: Math.min(...rs.map((r) => r.left)),
+      y: Math.min(...rs.map((r) => r.top)),
+      der: Math.max(...rs.map((r) => r.right)),
+      abajo: Math.max(...rs.map((r) => r.bottom)),
+    };
+    u.w = u.der - u.x;
+    u.h = u.abajo - u.y;
+    const cx = u.x + u.w / 2;
+    const medioAncho = Math.min(cx - 16, innerWidth - 16 - cx); // simétrico: respeta paneles laterales
+    const abajo = limiteInferior();
+    const s = Math.min((abajo - u.y) / u.h, (2 * medioAncho) / u.w);
+    if (!(s > 1.02)) return soltarVideo();
+
+    // con transform-origin 0 0: p' = o + s·(p − o) + t, con o = esquina del contenedor
+    const o = objetivo.getBoundingClientRect();
+    const nuevoX = cx - (s * u.w) / 2;
+    const nuevoY = u.y + (abajo - u.y - s * u.h) / 2;
+    const tx = nuevoX - o.left - s * (u.x - o.left);
+    const ty = nuevoY - o.top - s * (u.y - o.top);
+    objetivo.style.setProperty('transform-origin', '0 0', 'important');
+    objetivo.style.setProperty('transform', `translate(${tx.toFixed(1)}px, ${ty.toFixed(1)}px) scale(${s.toFixed(4)})`, 'important');
+    escalado = objetivo;
   }
 
   // ── lectura ──
@@ -217,7 +293,10 @@
   // la región aparece/desaparece al prender/apagar subtítulos: se vigila y se re-engancha
   function vigilarRegion() {
     const region = buscarRegion();
-    if (region) ocultarRegion(region);
+    if (region) {
+      ocultarRegion(region);
+      ajustarVideo();
+    } else soltarVideo();
     if (region !== regionObservada) {
       observador?.disconnect();
       regionObservada = region || null;
@@ -257,6 +336,14 @@
     activadosPorNosotros = false;
     vigilarRegion();
     temporizadores = [setInterval(vigilarRegion, BUSQUEDA_MS), setInterval(enviar, ENVIO_MS)];
+    addEventListener('resize', alRedimensionar);
+  }
+
+  // Meet reacomoda los videos al cambiar el tamaño: se reajusta justo después, sin esperar al ciclo
+  let reajuste = null;
+  function alRedimensionar() {
+    clearTimeout(reajuste);
+    reajuste = setTimeout(() => activo && regionObservada && ajustarVideo(), 150);
   }
 
   // devuelve lo transcrito; deja los subtítulos de Meet como estaban
@@ -266,6 +353,8 @@
       enviar();
     }
     activo = false;
+    removeEventListener('resize', alRedimensionar);
+    clearTimeout(reajuste);
     temporizadores.forEach(clearInterval);
     temporizadores = [];
     clearTimeout(pendiente);
