@@ -293,7 +293,8 @@
         h('span', { class: 'ondas' }, h('i'), h('i'), h('i'), h('i')),
         h('span', { class: 'marca' }, 'Plogy'),
         h('span', { class: 'punto' }, '·'),
-        h('span', { class: 'codigo' }, location.pathname.split('/').filter(Boolean)[0] || 'Meet'),
+        // la URL puede ser /abc-defg-hij o /meet/abc-defg-hij: el código es lo último
+        h('span', { class: 'codigo' }, location.pathname.split('/').filter(Boolean).pop() || 'Meet'),
         h('span', { class: 'punto' }, '·'),
         el.tiempo,
         h(

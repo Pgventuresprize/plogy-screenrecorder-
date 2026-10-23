@@ -218,6 +218,7 @@ async function cambiarDrive() {
 (async () => {
   $('iniciar').addEventListener('click', iniciar);
   $('detener').addEventListener('click', detener);
+  $('version').textContent = `v${chrome.runtime.getManifest().version}`;
   $('diagnostico').addEventListener('click', async () => {
     await enviar({ tipo: 'diagnostico' });
     mostrarMensaje('Listo: diagnostico-meet.json quedó en Descargas › Grabaciones Meet.');

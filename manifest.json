@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Plogy Screen Recorder",
-  "version": "1.5.3",
+  "version": "1.5.4",
   "description": "Graba tus llamadas de Google Meet (video, audio de todos y tu micrófono) y las sube a Google Drive.",
   "icons": {
     "16": "assets/icono-16.png",

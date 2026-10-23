@@ -128,6 +128,7 @@
       regionEncontrada: !!region,
       cajaOculta: describir(cajaOculta),
       aplastadas: aplastadas.map(describir),
+      videos: [...document.querySelectorAll('video')].map((v) => describir(v.parentElement)),
       regiones: [...document.querySelectorAll('[role="region"]')].map(describir),
       botones: [...document.querySelectorAll('button[aria-label]')]
         .map((b) => b.getAttribute('aria-label'))
