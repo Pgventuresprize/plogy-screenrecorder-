@@ -129,7 +129,10 @@
       cajaOculta: describir(cajaOculta),
       aplastadas: aplastadas.map(describir),
       videos: [...document.querySelectorAll('video')].map((v) => describir(v.parentElement)),
-      escalado: escalado ? { ...describir(escalado), transform: escalado.style.transform } : null,
+      escalado: escalado ? { ...describir(escalado), transform: getComputedStyle(escalado).transform } : null,
+      decision,
+      hojaConectada: !!hoja?.isConnected,
+      reglaEscala,
       regiones: [...document.querySelectorAll('[role="region"]')].map(describir),
       botones: [...document.querySelectorAll('button[aria-label]')]
         .map((b) => b.getAttribute('aria-label'))
@@ -142,7 +145,26 @@
   // reserva al video el alto de una caja interior (a4cQT, 216 px en el diagnóstico real), no
   // el de la exterior. La región misma no se toca: ahí se leen los subtítulos.
   // Se llama cada segundo: si Meet vuelve a crear alguna caja, se aplasta también.
+  //
+  // Los estilos van en una hoja propia, no en el atributo style: Meet reescribe el style de sus
+  // elementos y borraba lo que se le ponía. Los elementos se marcan con un atributo data-*.
   let aplastadas = [];
+  let hoja = null;
+  let reglaEscala = '';
+
+  const MARCA_APLASTAR = 'data-plogy-aplastar';
+  const MARCA_ESCALA = 'data-plogy-escala';
+  const REGLA_APLASTAR = `[${MARCA_APLASTAR}] { ${ESTILO_OCULTO.map(([p, v]) => `${p}: ${v} !important;`).join(' ')} }`;
+
+  function pintarHoja() {
+    if (!hoja?.isConnected) {
+      hoja = document.createElement('style');
+      hoja.id = 'plogy-estilos';
+      (document.head || document.documentElement).append(hoja);
+    }
+    const texto = `${REGLA_APLASTAR}\n${reglaEscala}`;
+    if (hoja.textContent !== texto) hoja.textContent = texto;
+  }
 
   function ocultarRegion(region) {
     const caja = cajaDeSubtitulos(region);
@@ -152,13 +174,14 @@
       if (el === caja) break;
     }
     for (const el of aplastadas) if (!cadena.includes(el)) restaurar(el);
-    for (const el of cadena) for (const [p, v] of ESTILO_OCULTO) el.style.setProperty(p, v, 'important');
+    for (const el of cadena) el.setAttribute(MARCA_APLASTAR, '');
     aplastadas = cadena;
     cajaOculta = caja;
+    pintarHoja();
   }
 
   function restaurar(el) {
-    for (const [p] of ESTILO_OCULTO) el.style.removeProperty(p);
+    el.removeAttribute(MARCA_APLASTAR);
   }
 
   function mostrarRegion() {
@@ -166,6 +189,8 @@
     aplastadas = [];
     cajaOculta = null;
     soltarVideo();
+    hoja?.remove();
+    hoja = null;
   }
 
   // ── video a pantalla completa con subtítulos activos ──
@@ -176,13 +201,25 @@
   // no mide (ResizeObserver y clientWidth ignoran transform), hasta llenar el espacio libre.
 
   let escalado = null; // contenedor al que se le aplicó la escala
+  let decision = 'sin calcular'; // última decisión, para el diagnóstico
 
-  function soltarVideo() {
-    if (escalado) {
-      escalado.style.removeProperty('transform');
-      escalado.style.removeProperty('transform-origin');
-    }
+  function soltarVideo(motivo) {
+    escalado?.removeAttribute(MARCA_ESCALA);
     escalado = null;
+    if (motivo) decision = motivo;
+    if (reglaEscala) {
+      reglaEscala = '';
+      if (hoja) pintarHoja();
+    }
+  }
+
+  // solo videos que se ven de verdad: dentro de la pantalla, visibles y con tamaño
+  function visible(el) {
+    const r = el.getBoundingClientRect();
+    if (r.width < 40 || r.height < 40) return false;
+    if (r.right < 0 || r.bottom < 0 || r.left > innerWidth || r.top > innerHeight) return false;
+    const cs = getComputedStyle(el);
+    return cs.visibility !== 'hidden' && cs.display !== 'none' && Number(cs.opacity) > 0.05;
   }
 
   function ancestroComun(nodos) {
@@ -201,20 +238,24 @@
 
   function ajustarVideo() {
     // los recuadros grandes (se ignoran miniaturas como la vista propia flotante)
-    const recuadros = [...document.querySelectorAll('video')]
-      .map((v) => v.parentElement)
-      .filter((p) => p && p.getBoundingClientRect().width > 0 && p.getBoundingClientRect().height > 0);
-    if (!recuadros.length) return soltarVideo();
-
     // se mide sin la escala propia (en la misma tarea, así no hay parpadeo)
-    if (escalado) escalado.style.removeProperty('transform');
+    escalado?.removeAttribute(MARCA_ESCALA);
+
+    const recuadros = [...document.querySelectorAll('video')]
+      .filter((v) => !v.closest('plogy-notch'))
+      .map((v) => v.parentElement)
+      .filter((p) => p && visible(p));
+    if (!recuadros.length) return soltarVideo('no hay videos visibles');
+
     const area = (r) => r.width * r.height;
     const maxArea = Math.max(...recuadros.map((p) => area(p.getBoundingClientRect())));
     const grandes = recuadros.filter((p) => area(p.getBoundingClientRect()) >= maxArea * 0.4);
     const objetivo = ancestroComun(grandes);
-    if (!objetivo || objetivo === document.body) return soltarVideo();
+    if (!objetivo || objetivo === document.body) return soltarVideo('sin contenedor común');
     if (escalado && escalado !== objetivo) soltarVideo();
-    if (!escalado && getComputedStyle(objetivo).transform !== 'none') return; // no pisar transform de Meet
+    if (getComputedStyle(objetivo).transform !== 'none') {
+      return soltarVideo('el contenedor ya tiene un transform de Meet'); // no pisarlo
+    }
 
     const rs = grandes.map((p) => p.getBoundingClientRect());
     const u = {
@@ -229,7 +270,8 @@
     const medioAncho = Math.min(cx - 16, innerWidth - 16 - cx); // simétrico: respeta paneles laterales
     const abajo = limiteInferior();
     const s = Math.min((abajo - u.y) / u.h, (2 * medioAncho) / u.w);
-    if (!(s > 1.02)) return soltarVideo();
+    const medida = `${grandes.length} video(s) ${Math.round(u.w)}x${Math.round(u.h)} en y=${Math.round(u.y)}, límite ${Math.round(abajo)}`;
+    if (!(s > 1.02)) return soltarVideo(`no hace falta agrandar (${medida}, escala ${s.toFixed(2)})`);
 
     // con transform-origin 0 0: p' = o + s·(p − o) + t, con o = esquina del contenedor
     const o = objetivo.getBoundingClientRect();
@@ -237,9 +279,11 @@
     const nuevoY = u.y + (abajo - u.y - s * u.h) / 2;
     const tx = nuevoX - o.left - s * (u.x - o.left);
     const ty = nuevoY - o.top - s * (u.y - o.top);
-    objetivo.style.setProperty('transform-origin', '0 0', 'important');
-    objetivo.style.setProperty('transform', `translate(${tx.toFixed(1)}px, ${ty.toFixed(1)}px) scale(${s.toFixed(4)})`, 'important');
+    reglaEscala = `[${MARCA_ESCALA}] { transform-origin: 0 0 !important; transform: translate(${tx.toFixed(1)}px, ${ty.toFixed(1)}px) scale(${s.toFixed(4)}) !important; }`;
+    pintarHoja();
+    objetivo.setAttribute(MARCA_ESCALA, '');
     escalado = objetivo;
+    decision = `agrandado x${s.toFixed(2)} (${medida})`;
   }
 
   // ── lectura ──
@@ -296,7 +340,7 @@
     if (region) {
       ocultarRegion(region);
       ajustarVideo();
-    } else soltarVideo();
+    } else soltarVideo('sin subtítulos activos');
     if (region !== regionObservada) {
       observador?.disconnect();
       regionObservada = region || null;
